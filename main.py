@@ -7,7 +7,8 @@ import asyncio
 import aiohttp
 from dotenv import load_dotenv
 
-from utils import recipe_data
+from utils.utils import recipe_data
+from utils.languages import Languages
 
 # Load environment variables
 load_dotenv()
@@ -18,6 +19,8 @@ mealie_api_key = os.getenv('MEALIE_API_KEY')
 
 # OpenAI API key
 openai.api_key = os.getenv('OPENAI_API_KEY')
+
+language = Languages.GER
 
 def clean_special_characters(text):
     # Replace special characters
@@ -41,7 +44,7 @@ def generate_recipe_from_text(text: str) -> dict:
             messages=[
                 {"role": "system", "content": "You are a helpful Assistant, specialized on the selfhost service 'Mealie'."},
                 {"role": "user", "content": f"This is the JSON-Format for Mealie Recipes: {recipe_data}"},
-                {"role": "user", "content": f"Create a detailed Mealie recipe in JSON format using the following text. The response should contain only the JSON. The JSON should be directly importable using the Mealie API. For the ingredients and instructions, use ONLY this text:\n\n{text}"}
+                {"role": "user", "content": f"Create a detailed Mealie recipe in {language}, as JSON format using the following text. The response should contain only the JSON. The JSON should be directly importable using the Mealie API. For the ingredients and instructions, use ONLY this text:\n\n{text}"}
             ],
             max_tokens=2500
         )
@@ -76,21 +79,25 @@ async def upload_recipe_to_mealie(recipe: dict):
                 print(await response.text())
 
 async def main():
-    image_path = "C:/Users/Domenic/Desktop/IMG_6962.jpg"
+    script_dir = os.path.dirname(os.path.abspath(__file__))  # Get directory of the script
+    imgs_folder = os.path.join(script_dir, "imgs")  # Path to the imgs folder
     
-    extracted_text = extract_text_from_image(image_path)
+    # Iterate over all files in the imgs folder
+    for filename in os.listdir(imgs_folder):
+        if filename.endswith((".jpg", ".jpeg", ".png")):  # Check if file is an image
+            image_path = os.path.join(imgs_folder, filename)  # Get full path to the image
+            extracted_text = extract_text_from_image(image_path)
 
-    try:
-        generated_recipe = generate_recipe_from_text(extracted_text)
-        print(f"Generated Recipe: {generated_recipe}")
-    except Exception as e:
-        generated_recipe = None
+            try:
+                generated_recipe = generate_recipe_from_text(extracted_text)
+            except Exception as e:
+                generated_recipe = None
 
-    if generated_recipe:
-        mealie_recipe = create_mealie_recipe(recipe_data=generated_recipe)
-        print(f"Mealie Recipe JSON: {mealie_recipe}")
+            if generated_recipe:
+                mealie_recipe = create_mealie_recipe(recipe_data=generated_recipe)
+                print(f"Mealie Recipe JSON for {filename}: {mealie_recipe}")
 
-        await upload_recipe_to_mealie(mealie_recipe)
+                await upload_recipe_to_mealie(mealie_recipe)
 
 if __name__ == '__main__':
     asyncio.run(main())
