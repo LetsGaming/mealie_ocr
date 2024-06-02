@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from utils.utils import recipe_data
 from utils.languages import Languages
+from utils.ai_models import Models
 
 # Load environment variables
 load_dotenv()
@@ -20,7 +21,8 @@ mealie_api_key = os.getenv('MEALIE_API_KEY')
 # OpenAI API key
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
-language = Languages.GER
+language = Languages.GER.value
+ai_model = Models.GPT4.value
 
 def clean_special_characters(text):
     # First replace longer substrings
@@ -48,19 +50,19 @@ def extract_text_from_image(image_path: str) -> str:
         print(f"Error extracting text from image: {e}")
         return ""
 
-def generate_recipe_from_text(text: str) -> dict:
+async def generate_recipe_from_text(text: str) -> dict:
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
+        response = await openai.ChatCompletion.acreate(
+            model=ai_model,
             messages=[
                 {"role": "system", "content": "You're a helpful Assistant, specialized in the Mealie self-hosting service."},
                 {"role": "user", "content": f"Here's the JSON format for Mealie Recipes: {recipe_data}."},
-                {"role": "user", "content": f"Generate a detailed Mealie recipe in {language} following this format strictly, especially for ingredients and instructions. Use double quotes for properties, except for values like numbers (except for nutrion label), booleans or null. Ensure units are in the correct format with the UUIDs from the given format. Quantity only accepts integers or floats. IDs must be valid UUIDs of length 32 with version 4. Include only relevant data from the given format."},
-                {"role": "user", "content": "Incorporate the userId and groupId from the provided format into the recipe. Add suitable tags for the recipe, but no categories. Calculate nutrition label data. 'showNutrition' needs to be true and 'disableAmount' false. Cook Time is set under 'performTime'"},
+                {"role": "user", "content": f"Generate a detailed Mealie recipe in {language}, following the format strictly, especially for ingredients and instructions. Use double quotes for properties, except for values like numbers (except for nutrion label), booleans or null. Ensure units are in the correct format with the UUIDs from the given recipe-format. Quantity only accepts integers or floats. IDs must be valid UUIDs of length 32 with version 4. Each Instruction need to have a UUID. Include only relevant data from the given format."},
+                {"role": "user", "content": "Incorporate the userId and groupId from the provided format into the recipe. Add suitable tags for the recipe, but no categories. Calculate nutrition label data, based on ingredients. 'showNutrition' needs to be true and 'disableAmount' needs to be false. Cook Time is set under 'performTime'"},
                 {"role": "user", "content": "Name of the ingredient goes into 'note'. Numbering for instructions is not needed in text. The nutrions are in the following units: Calories: calories, Sodium: milligrams. Everything else: grams"},
                 {"role": "user", "content": f"For ingredients and instructions, use ONLY this text: {text}."}
             ],
-            max_tokens=4096
+            max_tokens=3000
         )
         response_content = response['choices'][0]['message']['content'].strip()
         cleaned_response = clean_special_characters(response_content)
@@ -76,7 +78,7 @@ async def updated_recipe(slug: str, recipe: dict):
     }
     
     recipe_data = json.dumps(recipe)
-    print(f"data: {recipe_data}")
+    print(f"Recipe Data: {recipe_data}")
     async with aiohttp.ClientSession() as session:
         async with session.put(mealie_base_url + f"api/recipes/{slug}", json=recipe_data, headers=headers) as response:
             if response.status == 200 or 201:
@@ -95,7 +97,7 @@ async def upload_recipe_to_mealie(recipe: dict):
         async with session.post(mealie_base_url + "api/recipes", json=recipe, headers=headers) as response:
             if response.status == 200 or 201:
                 print("Recipe successfully uploaded.")
-                slug = recipe.get("slug")
+                slug = await response.text()
                 await updated_recipe(slug, recipe)
             else:
                 print(f"Failed to upload recipe. Status code: {response.status}")
@@ -112,8 +114,7 @@ async def main():
             extracted_text = extract_text_from_image(image_path)
 
             try:
-                generated_recipe = generate_recipe_from_text(extracted_text)
-                print(f"Generated Recipe: {generated_recipe}")
+                generated_recipe = await generate_recipe_from_text(extracted_text)
             except Exception as e:
                 generated_recipe = None
 
